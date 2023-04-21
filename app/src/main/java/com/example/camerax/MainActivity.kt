@@ -39,7 +39,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity() {
     private lateinit var mainBinding: ActivityMainBinding
     private var mIsVideoRecording: Boolean = false
-    private val REQUEST_CAMERA_PERMISSION: Int = 0
+
     private var mImageCapture: ImageCapture? = null
     private lateinit var mImageCaptureExecutor: ExecutorService
     private lateinit var mCameraSelector:CameraSelector
@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
     private  lateinit var mChronometer: Chronometer
     private var isFlashOn: Boolean = false
     private lateinit var camera: Camera
-    private val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
@@ -183,7 +183,6 @@ class MainActivity : AppCompatActivity() {
             val outputFileOptions = ImageCapture.OutputFileOptions
                 .Builder(contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
             ).build()
-
             it.takePicture(
                 outputFileOptions,
                 mImageCaptureExecutor,
@@ -202,7 +201,8 @@ class MainActivity : AppCompatActivity() {
                     }
 
                 })
-            Toast.makeText( this@MainActivity , "The image has been saved successfully", Toast.LENGTH_SHORT).show()
+
+            Toast.makeText( this@MainActivity , "The image has been saved to Gallery", Toast.LENGTH_SHORT).show()
 
         }
     }
@@ -248,7 +248,7 @@ class MainActivity : AppCompatActivity() {
                              is VideoRecordEvent.Pause -> {}
                              is VideoRecordEvent.Finalize -> {
                                  if (!recordEvent.hasError()) {
-                                     val msg = "Video capture succeeded: ${recordEvent.outputResults.outputUri}"
+                                     val msg = "Video saved: ${recordEvent.outputResults.outputUri}"
                                      Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
                                      mainBinding.ivPauseResume.visibility = View.GONE
                                      mChronometer.stop()
@@ -292,6 +292,10 @@ class MainActivity : AppCompatActivity() {
             this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
                 ActivityCompat.checkSelfPermission(
                     this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+    }
+    companion object {
+        const val REQUEST_CAMERA_PERMISSION: Int = 0
+        const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
     }
 }
 
