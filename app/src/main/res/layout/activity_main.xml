@@ -40,19 +40,18 @@
         android:layout_height="wrap_content"/>
     <ImageView
         android:id="@+id/iv_take_picture"
-        app:layout_constraintStart_toEndOf="@+id/iv_start_stop"
-        app:layout_constraintEnd_toStartOf="@+id/iv_pause_resume"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="@+id/iv_start_stop"
         app:layout_constraintBottom_toBottomOf="parent"
         android:layout_marginBottom="10dp"
         android:background="@drawable/ic_camera_icon"
-
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"/>
     <ImageView
         android:id="@+id/iv_pause_resume"
         app:layout_constraintStart_toEndOf="@+id/iv_take_picture"
-        app:layout_constraintTop_toTopOf="@+id/iv_take_picture"
+        app:layout_constraintTop_toTopOf="@+id/iv_start_stop"
         app:layout_constraintEnd_toEndOf="parent"
         android:background="@drawable/ic_pause_icon"
         android:layout_width="wrap_content"
@@ -75,5 +74,16 @@
         android:layout_marginBottom="20dp"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        />
+
+    <com.google.android.exoplayer2.ui.PlayerView
+        android:id="@+id/player_view"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         />
 </androidx.constraintlayout.widget.ConstraintLayout>

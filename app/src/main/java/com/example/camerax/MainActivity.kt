@@ -1,18 +1,18 @@
 package com.example.camerax
 
 import android.Manifest
-import android.annotation.SuppressLint
+import android.app.ProgressDialog
 import android.content.ContentValues
 import android.content.pm.PackageManager
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaMuxer
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
+import android.view.Surface
 import android.view.View
 import android.widget.Chronometer
 import android.widget.Toast
@@ -22,6 +22,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
+import androidx.camera.core.impl.ImageOutputConfig.RotationValue
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
@@ -30,22 +31,18 @@ import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
+import androidx.camera.video.impl.VideoCaptureConfig
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
-import androidx.core.net.toFile
 import com.example.camerax.databinding.ActivityMainBinding
-import com.google.android.exoplayer2.MediaItem
-import com.google.android.exoplayer2.SimpleExoPlayer
-import com.google.android.exoplayer2.mediacodec.MediaCodecSelector
-import com.google.android.exoplayer2.source.ConcatenatingMediaSource
-import com.google.android.exoplayer2.source.MediaSource
-import com.google.android.exoplayer2.source.ProgressiveMediaSource
-import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory
-import com.google.android.exoplayer2.util.Util
-import com.google.android.exoplayer2.video.MediaCodecVideoRenderer
+import org.mp4parser.muxer.Movie
+import org.mp4parser.muxer.Track
+import org.mp4parser.muxer.builder.DefaultMp4Builder
+import org.mp4parser.muxer.container.mp4.MovieCreator
+import org.mp4parser.muxer.tracks.AppendTrack
 import java.io.File
-import java.nio.ByteBuffer
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
@@ -72,14 +69,25 @@ class MainActivity : AppCompatActivity() {
     private var isFlashOn: Boolean = false
     private lateinit var camera: Camera
     private var mIsCameraSwitched: Boolean = false
-    private lateinit var videoFile1: File
-    private lateinit var videoFile2: File
+
+    private val outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video.mp4")
+    private lateinit var mVideoFileList: MutableList<File>
+    private lateinit var progressDialogue: ProgressDialog
+    private var timeWhenPaused: Long  = 0
+    private var cameraSwitchCount:Int = 0
+    private var mBackgroundThreadHandler: HandlerThread? = null
+    private var mBackgroundHandler: Handler? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(mainBinding.root)
 
         mImageCaptureExecutor = Executors.newSingleThreadExecutor()
+
+       // checkPermission(arrayOf(Manifest.permission.CAMERA,Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE) ,0)
+
+        progressDialogue = ProgressDialog(this)
+        progressDialogue.setMessage("Merging Videos..")
         if(allPermissionsGranted()) {
             mCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
             startCamera()
@@ -87,34 +95,39 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Require permissions to access camera", Toast.LENGTH_SHORT).show()
         }
 
+        mVideoFileList = mutableListOf()
         mChronometer = mainBinding.chronometer
         mChronometer.visibility = View.GONE
         mainBinding.ivPauseResume.visibility = View.GONE
-        videoFile1 = File("")
-        videoFile2 = File("")
+
         recorderBuilder.setQualitySelector(qualitySelector)
         mainBinding.ivStartStop.setOnClickListener {
             if (mIsVideoRecording) {
+               // mainBinding.progressbar.visibility = View.VISIBLE
+                mainBinding.ivTakePicture.visibility = View.VISIBLE
+                progressDialogue.show()
                 mIsVideoRecording = false
-               stopRecording()
+                cameraSwitchCount = 0
+                stopRecording()
+
             } else {
+                mainBinding.ivTakePicture.visibility = View.GONE
+                mIsVideoRecording = true
                 startRecordingVideo()
             }
         }
-        var timeWhenPaused: Long = 0
+
+
+
+
+         timeWhenPaused = 0
         mainBinding.ivPauseResume.setOnClickListener {
             if (mIsVideoPaused) {
                 mIsVideoPaused = false
-                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_pause_icon)
                 mRecording!!.resume()
-                mChronometer.base = SystemClock.elapsedRealtime() + timeWhenPaused
-                mChronometer.start()
 
             } else {
                 mIsVideoPaused = true
-                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_resume_icon)
-                timeWhenPaused = mChronometer.base - SystemClock.elapsedRealtime()
-                mChronometer.stop()
                 mRecording!!.pause()
             }
         }
@@ -122,11 +135,12 @@ class MainActivity : AppCompatActivity() {
         mainBinding.ivSwitchCamera.setOnClickListener {
             mIsCameraSwitched = true
             if (mIsVideoRecording) {
+                ++cameraSwitchCount
                 stopRecording()
+                switchCamera()
                 startRecordingVideo()
             } else {
                 switchCamera()
-                startCamera()
             }
         }
         mainBinding.ivTakePicture.setOnClickListener {
@@ -143,15 +157,16 @@ class MainActivity : AppCompatActivity() {
         if ( mCameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
             camera.cameraControl.enableTorch(false)
             mCameraSelector =  CameraSelector.DEFAULT_FRONT_CAMERA
+
             mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_off_icon)
         } else {
             mCameraSelector =  CameraSelector.DEFAULT_BACK_CAMERA
         }
         startCamera()
-
     }
 
     private fun onFlashButtonClicked() {
+
         if(mCameraSelector == CameraSelector.DEFAULT_FRONT_CAMERA) {
             mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_off_icon)
             Toast.makeText(this, "Flash is not available", Toast.LENGTH_SHORT).show()
@@ -173,19 +188,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startCamera() {
+        val preview = Preview.Builder()
+            .build()
+            .also {
+                it.setSurfaceProvider(mainBinding.cameraPreview.surfaceProvider)
+            }
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         if(mIsCameraSwitched) {
             recorder = Recorder.Builder().build()
         }
+
+        Log.d(TAG, cameraSwitchCount.toString())
         mVideoCapture = VideoCapture.withOutput(recorder)
+
         cameraProviderFuture.addListener({
 
             val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder()
-                .build()
-                .also {
-                    it.setSurfaceProvider(mainBinding.cameraPreview.surfaceProvider)
-                }
+
             mImageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
@@ -193,7 +212,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(this, mCameraSelector,mImageCapture,mVideoCapture,preview)
-                //camera.cameraControl.setZoomRatio(6.0f)
+
             } catch (e: Exception) {
                 Log.d("MainActivity", "Use case binding failed")
             }
@@ -240,7 +259,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRecordingVideo() {
-        mIsVideoRecording = true
         mainBinding.ivStartStop.setBackgroundResource(R.drawable.ic_stop_video_icon)
         mVideoCapture!!.let {
             try {
@@ -262,6 +280,10 @@ class MainActivity : AppCompatActivity() {
                     .setContentValues(contentValues)
                     .build()
 
+
+
+                mVideoCapture!!.targetRotation = Surface.ROTATION_180
+
                 mRecording = mVideoCapture!!.output
                     .prepareRecording(this, mediaStoreOutputOptions)
                     .apply {
@@ -279,24 +301,35 @@ class MainActivity : AppCompatActivity() {
                                 mChronometer.base = SystemClock.elapsedRealtime()
                                 mChronometer.start()
                             }
-                            is VideoRecordEvent.Pause -> {}
+                            is VideoRecordEvent.Pause -> {
+                                mIsVideoPaused = true
+                                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_resume_icon)
+                                timeWhenPaused = mChronometer.base - SystemClock.elapsedRealtime()
+                                mChronometer.stop()
+                            }
                             is VideoRecordEvent.Finalize -> {
                                 if (!recordEvent.hasError()) {
-                                    val msg = "Video saved: ${recordEvent.outputResults.outputUri}"
-                                    Toast.makeText(this,  recordEvent.outputResults.outputUri.path, Toast.LENGTH_SHORT).show()
 
-//                                    if (mIsCameraSwitched) {
-//                                        videoFile2 = File(recordEvent.outputResults.outputUri.path!!)
-//                                        mergeVideos(videoFile1, videoFile2, videoFile1.path)
-//                                       // Toast.makeText(this,  "Camera switched", Toast.LENGTH_SHORT).show()
-//
-//                                    } else {
-//                                        videoFile1 = File(recordEvent.outputResults.outputUri.path!!)
-//                                        mainBinding.ivPauseResume.visibility = View.GONE
-//                                        mChronometer.stop()
-//                                        mChronometer.visibility = View.GONE
-//                                    }
-                                    //startCamera()
+                                    val savedUri = recordEvent.outputResults.outputUri
+
+                                    if (savedUri != null) {
+                                        val projection = arrayOf(MediaStore.Video.Media.DATA)
+                                        val cursor = contentResolver.query(savedUri, projection, null, null, null)
+                                        cursor?.use {
+                                            if (it.moveToFirst()) {
+                                                val filePath = it.getString(it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA))
+                                                val videoFile = File(filePath)
+                                                if(videoFile.exists()) {
+                                                    mVideoFileList.add(videoFile)
+                                                    Toast.makeText(this,  videoFile.path.toString(), Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if(!mIsVideoRecording){
+                                        mergeVideos(mVideoFileList)
+                                    }
 
                                 } else {
                                     mRecording?.close()
@@ -305,7 +338,12 @@ class MainActivity : AppCompatActivity() {
                                 }
 
                             }
-                            is VideoRecordEvent.Resume -> {}
+                            is VideoRecordEvent.Resume -> {
+                                mIsVideoPaused = false
+                                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_pause_icon)
+                                mChronometer.base = SystemClock.elapsedRealtime() + timeWhenPaused
+                                mChronometer.start()
+                            }
                         }
                     }
 
@@ -321,86 +359,60 @@ class MainActivity : AppCompatActivity() {
         mRecording!!.stop()
         mChronometer.stop()
         mChronometer.visibility = View.GONE
-        if(mIsCameraSwitched) {
-            switchCamera()
-        }
         if(!mIsVideoRecording) {
             mainBinding.ivPauseResume.visibility = View.GONE
+            startCamera()
+        }
+    }
+
+
+    private fun mergeVideos(videoFiles: List<File>) {
+        try {
+
+            val movieList = mutableListOf<Movie>()
+            for (videoFile  in videoFiles) {
+                val movie = MovieCreator.build(videoFile.absolutePath)
+                movieList.add(movie)
+            }
+            val videoTracks = mutableListOf<Track>()
+            val audioTracks = mutableListOf<Track>()
+
+            for (movie in movieList) {
+                for (track in movie.tracks) {
+                    if (track.handler == "vide") {
+                        videoTracks.add(track)
+                    }
+                    if (track.handler == "soun") {
+                        audioTracks.add(track)
+                    }
+
+                }
+            }
+
+            val mergedMovie = Movie()
+            if (videoTracks.size > 0) {
+                mergedMovie.addTrack(AppendTrack(*videoTracks.toTypedArray()))
+            }
+
+            if (audioTracks.size > 0) {
+                mergedMovie.addTrack(AppendTrack(*audioTracks.toTypedArray()))
+            }
+
+            val container = DefaultMp4Builder().build(mergedMovie)
+            val fileChannel = FileOutputStream(outputFile).channel
+            container.writeContainer(fileChannel)
+            fileChannel.close()
+            progressDialogue.cancel()
+
+            Log.i(TAG,"Videos merged successfully")
+            for(file in videoFiles) {
+               file.delete()
+            }
+        } catch (e : Exception) {
+            Log.e(TAG, e.message.toString())
         }
 
-
     }
-
-    private fun mergeVideos(videoFile1: File, videoFile2: File, outputFilePath: String) {
-        Toast.makeText(this,  "Camera switched", Toast.LENGTH_SHORT).show()
-
-//        val mediaMuxer = MediaMuxer(outputFilePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-//        val videoTrackIndex = -1
-//        var audioTrackIndex = -1
-//
-//        // Add the first video file to the media muxer
-//        val extractor1 = MediaExtractor()
-//        extractor1.setDataSource(videoFile1.path)
-//        val videoFormat1 = extractor1.getTrackFormat(0)
-//        val audioFormat1 = extractor1.getTrackFormat(1)
-//        val videoTrackIndex1 = mediaMuxer.addTrack(videoFormat1)
-//        val audioTrackIndex1 = mediaMuxer.addTrack(audioFormat1)
-//        extractor1.selectTrack(0)
-//
-//        // Add the second video file to the media muxer
-//        val extractor2 = MediaExtractor()
-//        extractor2.setDataSource(videoFile2.path)
-//        val videoFormat2 = extractor2.getTrackFormat(0)
-//        val audioFormat2 = extractor2.getTrackFormat(1)
-//        val videoTrackIndex2 = mediaMuxer.addTrack(videoFormat2)
-//        val audioTrackIndex2 = mediaMuxer.addTrack(audioFormat2)
-//        extractor2.selectTrack(0)
-//
-//        mediaMuxer.start()
-//
-//        // Write the data from the first video file to the output file
-//        val buffer1 = ByteBuffer.allocate(1024 * 1024)
-//        var sampleSize1 = extractor1.readSampleData(buffer1, 0)
-//        while (sampleSize1 >= 0) {
-//            val mflag = extractor1.sampleFlags
-//            val bufferInfo = MediaCodec.BufferInfo()
-//            bufferInfo.offset = 0
-//            bufferInfo.size = sampleSize1
-//            bufferInfo.presentationTimeUs = extractor1.sampleTime
-//            bufferInfo.flags = mflag
-//            mediaMuxer.writeSampleData(videoTrackIndex1, buffer1, bufferInfo)
-//            extractor1.advance()
-//            sampleSize1 = extractor1.readSampleData(buffer1, 0)
-//        }
-//        // Write the data from the second video file to the output file
-//        val buffer2 = ByteBuffer.allocate(1024 * 1024)
-//        var sampleSize2 = extractor2.readSampleData(buffer2, 0)
-//        while (sampleSize2 >= 0) {
-//            val flag = extractor2.sampleFlags
-//            val bufferInfo = MediaCodec.BufferInfo()
-//            bufferInfo.offset = 0
-//            bufferInfo.size = sampleSize2
-//            bufferInfo.presentationTimeUs = extractor2.sampleTime
-//            bufferInfo.flags = flag
-//            mediaMuxer.writeSampleData(videoTrackIndex2, buffer2, bufferInfo)
-//            extractor2.advance()
-//            sampleSize2 = extractor2.readSampleData(buffer2, 0)
-//        }
-//
-//        // Release the extractors
-//        extractor1.release()
-//        extractor2.release()
-//
-//        // Stop and release the media muxer
-//        mediaMuxer.stop()
-//        mediaMuxer.release()
-    }
-    private fun buildMediaSource(file: File): MediaSource {
-        val dataSourceFactory = DefaultDataSourceFactory(this, Util.getUserAgent(this, "CameraX"))
-        return ProgressiveMediaSource.Factory(dataSourceFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.fromFile(file)))
-    }
-
 
 
     private fun allPermissionsGranted(): Boolean {
@@ -418,14 +430,114 @@ class MainActivity : AppCompatActivity() {
                 this,
                 arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQUEST_CAMERA_PERMISSION)
         }
+        if(ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CAMERA_PERMISSION)
+        }
+
         return ActivityCompat.checkSelfPermission(
             this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
                 ActivityCompat.checkSelfPermission(
                     this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     }
+
+    private fun checkPermission(permissions: Array<String>, requestCode: Int) {
+        if (ContextCompat.checkSelfPermission(this@MainActivity, permissions[0]) == PackageManager.PERMISSION_DENIED) {
+            ActivityCompat.requestPermissions(this@MainActivity, permissions, requestCode)
+        } else {
+            Toast.makeText(this@MainActivity, "Permission already granted", Toast.LENGTH_SHORT).show()
+        }
+    }
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String?>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CAMERA_PERMISSION) {
+
+            // Checking whether user granted the permission or not.
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                // Showing the toast message
+                Toast.makeText(this@MainActivity, "Camera Permission Granted", Toast.LENGTH_SHORT)
+                    .show()
+            } else {
+                Toast.makeText(this@MainActivity, "Camera Permission Denied", Toast.LENGTH_SHORT)
+                    .show()
+            }
+        } else if (requestCode == STORAGE_PERMISSION_CODE) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            ) {
+                Toast.makeText(this@MainActivity, "Storage Permission Granted", Toast.LENGTH_SHORT)
+                    .show()
+            } else {
+                Toast.makeText(this@MainActivity, "Storage Permission Denied", Toast.LENGTH_SHORT)
+                    .show()
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Log.e(TAG, "onPause()")
+        stopBackgroundThread()
+
+    }
+
+    private fun startBackgroundThread() {
+        mBackgroundThreadHandler = HandlerThread("Camera Background")
+        mBackgroundThreadHandler!!.start()
+        mBackgroundHandler = Handler(mBackgroundThreadHandler!!.looper)
+    }
+
+    private fun stopBackgroundThread() {
+        mBackgroundThreadHandler!!.quitSafely()
+        try {
+            mBackgroundThreadHandler!!.join()
+            mBackgroundThreadHandler = null
+            mBackgroundHandler = null
+        } catch (e: InterruptedException) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        Log.e(TAG, "onStop()")
+
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        Log.e(TAG, "onRestart()")
+
+    }
+
+    override fun onResume() {
+        super.onResume()
+        Log.e(TAG, "onResume()")
+        startBackgroundThread()
+
+        if(mIsVideoRecording) {
+            mRecording!!.resume()
+            mChronometer.start()
+        }
+    }
+    override fun onDestroy() {
+        super.onDestroy()
+        if(mIsVideoRecording) {
+            mRecording!!.stop()
+            mChronometer.stop()
+        }
+    }
     companion object {
         const val TAG = "MainActivity"
         const val REQUEST_CAMERA_PERMISSION: Int = 0
+        const val STORAGE_PERMISSION_CODE: Int = 1
         const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
     }
 }
