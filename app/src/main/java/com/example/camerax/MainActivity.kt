@@ -1,6 +1,8 @@
 package com.example.camerax
 
 import android.Manifest
+import android.R.attr.contextClickable
+import android.R.attr.rotation
 import android.app.ProgressDialog
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -12,7 +14,6 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
-import android.view.Surface
 import android.view.View
 import android.widget.Chronometer
 import android.widget.Toast
@@ -22,7 +23,6 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
-import androidx.camera.core.impl.ImageOutputConfig.RotationValue
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.MediaStoreOutputOptions
 import androidx.camera.video.Quality
@@ -31,11 +31,19 @@ import androidx.camera.video.Recorder
 import androidx.camera.video.Recording
 import androidx.camera.video.VideoCapture
 import androidx.camera.video.VideoRecordEvent
-import androidx.camera.video.impl.VideoCaptureConfig
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
 import com.example.camerax.databinding.ActivityMainBinding
+import com.otaliastudios.transcoder.Transcoder
+import com.otaliastudios.transcoder.TranscoderListener
+import com.otaliastudios.transcoder.TranscoderOptions
+import com.otaliastudios.transcoder.common.TrackStatus
+import com.otaliastudios.transcoder.strategy.DefaultAudioStrategy
+import com.otaliastudios.transcoder.strategy.DefaultVideoStrategies
+import com.otaliastudios.transcoder.strategy.TrackStrategy
+import com.otaliastudios.transcoder.validator.DefaultValidator
+import org.mp4parser.boxes.iso14496.part12.OriginalFormatBox
 import org.mp4parser.muxer.Movie
 import org.mp4parser.muxer.Track
 import org.mp4parser.muxer.builder.DefaultMp4Builder
@@ -47,12 +55,12 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 
 
 class MainActivity : AppCompatActivity() {
     private lateinit var mainBinding: ActivityMainBinding
     private var mIsVideoRecording: Boolean = false
-
     private var mImageCapture: ImageCapture? = null
     private lateinit var mImageCaptureExecutor: ExecutorService
     private lateinit var mCameraSelector:CameraSelector
@@ -70,13 +78,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var camera: Camera
     private var mIsCameraSwitched: Boolean = false
 
-    private val outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video.mp4")
+    private var outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video.mp4")
     private lateinit var mVideoFileList: MutableList<File>
     private lateinit var progressDialogue: ProgressDialog
     private var timeWhenPaused: Long  = 0
     private var cameraSwitchCount:Int = 0
     private var mBackgroundThreadHandler: HandlerThread? = null
     private var mBackgroundHandler: Handler? = null
+    private var mTranscodeFuture: Future<Void>? = null
+    private val mTranscodeVideoStrategy: TrackStrategy? = null
+    private val mTranscodeAudioStrategy: TrackStrategy? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
@@ -84,16 +96,8 @@ class MainActivity : AppCompatActivity() {
 
         mImageCaptureExecutor = Executors.newSingleThreadExecutor()
 
-       // checkPermission(arrayOf(Manifest.permission.CAMERA,Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE) ,0)
 
         progressDialogue = ProgressDialog(this)
-        progressDialogue.setMessage("Merging Videos..")
-        if(allPermissionsGranted()) {
-            mCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            startCamera()
-        } else {
-            Toast.makeText(this, "Require permissions to access camera", Toast.LENGTH_SHORT).show()
-        }
 
         mVideoFileList = mutableListOf()
         mChronometer = mainBinding.chronometer
@@ -101,11 +105,13 @@ class MainActivity : AppCompatActivity() {
         mainBinding.ivPauseResume.visibility = View.GONE
 
         recorderBuilder.setQualitySelector(qualitySelector)
+
+        checkPermissions()
+
         mainBinding.ivStartStop.setOnClickListener {
             if (mIsVideoRecording) {
                // mainBinding.progressbar.visibility = View.VISIBLE
                 mainBinding.ivTakePicture.visibility = View.VISIBLE
-                progressDialogue.show()
                 mIsVideoRecording = false
                 cameraSwitchCount = 0
                 stopRecording()
@@ -116,9 +122,6 @@ class MainActivity : AppCompatActivity() {
                 startRecordingVideo()
             }
         }
-
-
-
 
          timeWhenPaused = 0
         mainBinding.ivPauseResume.setOnClickListener {
@@ -134,11 +137,12 @@ class MainActivity : AppCompatActivity() {
 
         mainBinding.ivSwitchCamera.setOnClickListener {
             mIsCameraSwitched = true
+            cameraSwitchCount++
             if (mIsVideoRecording) {
-                ++cameraSwitchCount
                 stopRecording()
                 switchCamera()
                 startRecordingVideo()
+
             } else {
                 switchCamera()
             }
@@ -198,13 +202,38 @@ class MainActivity : AppCompatActivity() {
             recorder = Recorder.Builder().build()
         }
 
-        Log.d(TAG, cameraSwitchCount.toString())
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf<String>(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.RECORD_AUDIO
+                ),
+                REQUEST_CAMERA_PERMISSION
+            )
+            return
+        }
         mVideoCapture = VideoCapture.withOutput(recorder)
+
 
         cameraProviderFuture.addListener({
 
             val cameraProvider = cameraProviderFuture.get()
-
             mImageCapture = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .build()
@@ -220,6 +249,7 @@ class MainActivity : AppCompatActivity() {
         }, ContextCompat.getMainExecutor(this))
 
     }
+
     private fun takePhoto() {
         mImageCapture?.let{
 
@@ -262,16 +292,36 @@ class MainActivity : AppCompatActivity() {
         mainBinding.ivStartStop.setBackgroundResource(R.drawable.ic_stop_video_icon)
         mVideoCapture!!.let {
             try {
+
                 if (ActivityCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.CAMERA
+                    ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.READ_EXTERNAL_STORAGE
+                    ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
                         this,
                         Manifest.permission.RECORD_AUDIO
                     ) != PackageManager.PERMISSION_GRANTED
                 ) {
-                    allPermissionsGranted()
+                    ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf<String>(
+                            Manifest.permission.CAMERA,
+                            Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            Manifest.permission.READ_EXTERNAL_STORAGE,
+                            Manifest.permission.RECORD_AUDIO
+                        ),
+                        REQUEST_CAMERA_PERMISSION
+                    )
+                    return
                 }
 
                 val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, "VIDEO_${System.currentTimeMillis()}")
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, "VID_${System.currentTimeMillis()}")
                     put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
                 }
 
@@ -280,9 +330,7 @@ class MainActivity : AppCompatActivity() {
                     .setContentValues(contentValues)
                     .build()
 
-
-
-                mVideoCapture!!.targetRotation = Surface.ROTATION_180
+               // mVideoCapture!!.targetRotation = Surface.ROTATION_180
 
                 mRecording = mVideoCapture!!.output
                     .prepareRecording(this, mediaStoreOutputOptions)
@@ -319,17 +367,21 @@ class MainActivity : AppCompatActivity() {
                                             if (it.moveToFirst()) {
                                                 val filePath = it.getString(it.getColumnIndexOrThrow(MediaStore.Video.Media.DATA))
                                                 val videoFile = File(filePath)
+
+
                                                 if(videoFile.exists()) {
                                                     mVideoFileList.add(videoFile)
-                                                    Toast.makeText(this,  videoFile.path.toString(), Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(this,  "File Saved", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
                                     }
 
                                     if(!mIsVideoRecording){
-                                        mergeVideos(mVideoFileList)
+                                        rotateVideo(mVideoFileList[0].absolutePath, mVideoFileList[1].absolutePath, 180)
+                                        //mergeVideosUsingTranscoder(mVideoFileList)
                                     }
+
 
                                 } else {
                                     mRecording?.close()
@@ -368,10 +420,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun mergeVideos(videoFiles: List<File>) {
         try {
-
+            progressDialogue.setMessage("Merging Videos..")
+            progressDialogue.show()
             val movieList = mutableListOf<Movie>()
             for (videoFile  in videoFiles) {
-                val movie = MovieCreator.build(videoFile.absolutePath)
+
+                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video${System.currentTimeMillis()}.mp4")
+                progressDialogue.setMessage("generating new file path...")
+                progressDialogue.show()
+                val movie = MovieCreator.build(file.absolutePath)
                 movieList.add(movie)
             }
             val videoTracks = mutableListOf<Track>()
@@ -385,7 +442,6 @@ class MainActivity : AppCompatActivity() {
                     if (track.handler == "soun") {
                         audioTracks.add(track)
                     }
-
                 }
             }
 
@@ -404,10 +460,8 @@ class MainActivity : AppCompatActivity() {
             fileChannel.close()
             progressDialogue.cancel()
 
-            Log.i(TAG,"Videos merged successfully")
-            for(file in videoFiles) {
-               file.delete()
-            }
+            Toast.makeText(this, "Videos merged successfully", Toast.LENGTH_SHORT).show()
+
         } catch (e : Exception) {
             Log.e(TAG, e.message.toString())
         }
@@ -415,41 +469,59 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun allPermissionsGranted(): Boolean {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED){
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
-        }
-        if(ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), REQUEST_CAMERA_PERMISSION)
-        }
-        if(ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CAMERA_PERMISSION)
-        }
+    private fun rotateVideo(inputPath: String, outputPath: String, rotationDegrees: Int) {
+        val builder: TranscoderOptions.Builder =
+            Transcoder.into(outputPath).addDataSource(inputPath)
 
-        return ActivityCompat.checkSelfPermission(
-            this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED &&
-                ActivityCompat.checkSelfPermission(
-                    this, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        mTranscodeFuture = builder
+            .setAudioTrackStrategy(DefaultAudioStrategy.builder().build()) // DefaultAudioStrategy.builder().build()
+            .setVideoTrackStrategy(DefaultVideoStrategies.for720x1280())  // DefaultVideoStrategies.for720x1280()
+            .setVideoRotation(rotationDegrees)
+            .setListener(object : TranscoderListener{
+                override fun onTranscodeProgress(progress: Double) {}
+
+                override fun onTranscodeCompleted(successCode: Int) {
+                    Toast.makeText(this@MainActivity, successCode.toString(), Toast.LENGTH_SHORT).show()
+                }
+
+                override fun onTranscodeCanceled() {
+                    Toast.makeText(this@MainActivity, "Video rotation cancelled", Toast.LENGTH_SHORT).show()
+                }
+
+                override fun onTranscodeFailed(exception: Throwable) {
+                    Toast.makeText(this@MainActivity, exception.message, Toast.LENGTH_SHORT).show()
+                }
+
+            })
+            .setValidator(object : DefaultValidator() {
+                override fun validate(videoStatus: TrackStatus, audioStatus: TrackStatus): Boolean {
+                 //  mIsAudioOnly = !videoStatus.isTranscoding
+                    return super.validate(videoStatus, audioStatus)
+                }
+            })?.transcode()
+
     }
 
-    private fun checkPermission(permissions: Array<String>, requestCode: Int) {
-        if (ContextCompat.checkSelfPermission(this@MainActivity, permissions[0]) == PackageManager.PERMISSION_DENIED) {
-            ActivityCompat.requestPermissions(this@MainActivity, permissions, requestCode)
+    private  fun checkPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(this,Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        ) {
+         mCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+         startCamera()
+
         } else {
-            Toast.makeText(this@MainActivity, "Permission already granted", Toast.LENGTH_SHORT).show()
+            if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE )) {
+                Toast.makeText(this, "app needs permission to be able to save videos", Toast.LENGTH_SHORT)
+                    .show()
+            }
+            requestPermissions(
+                arrayOf(Manifest.permission.CAMERA,Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.RECORD_AUDIO,Manifest.permission.READ_EXTERNAL_STORAGE),
+                REQUEST_CAMERA_PERMISSION
+            )
         }
+
     }
     override fun onRequestPermissionsResult(
         requestCode: Int,
@@ -458,27 +530,19 @@ class MainActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_CAMERA_PERMISSION) {
-
-            // Checking whether user granted the permission or not.
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-
-                // Showing the toast message
-                Toast.makeText(this@MainActivity, "Camera Permission Granted", Toast.LENGTH_SHORT)
-                    .show()
-            } else {
-                Toast.makeText(this@MainActivity, "Camera Permission Denied", Toast.LENGTH_SHORT)
-                    .show()
-            }
-        } else if (requestCode == STORAGE_PERMISSION_CODE) {
-            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-            ) {
-                Toast.makeText(this@MainActivity, "Storage Permission Granted", Toast.LENGTH_SHORT)
-                    .show()
-            } else {
-                Toast.makeText(this@MainActivity, "Storage Permission Denied", Toast.LENGTH_SHORT)
-                    .show()
+            for(results in grantResults) {
+                if (results == PackageManager.PERMISSION_DENIED) {
+                    // close the app
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Sorry!!!, you can't use this app without granting permission",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    finish()
+                }
             }
         }
+
     }
 
     override fun onPause() {
@@ -536,6 +600,7 @@ class MainActivity : AppCompatActivity() {
     }
     companion object {
         const val TAG = "MainActivity"
+        private const val ROTATION_DEGREE = 0
         const val REQUEST_CAMERA_PERMISSION: Int = 0
         const val STORAGE_PERMISSION_CODE: Int = 1
         const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
