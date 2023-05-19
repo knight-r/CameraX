@@ -1,8 +1,6 @@
 package com.example.camerax
 
 import android.Manifest
-import android.R.attr.contextClickable
-import android.R.attr.rotation
 import android.app.ProgressDialog
 import android.content.ContentValues
 import android.content.pm.PackageManager
@@ -14,6 +12,7 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.util.Log
+import android.util.Size
 import android.view.View
 import android.widget.Chronometer
 import android.widget.Toast
@@ -41,9 +40,9 @@ import com.otaliastudios.transcoder.TranscoderOptions
 import com.otaliastudios.transcoder.common.TrackStatus
 import com.otaliastudios.transcoder.strategy.DefaultAudioStrategy
 import com.otaliastudios.transcoder.strategy.DefaultVideoStrategies
+import com.otaliastudios.transcoder.strategy.DefaultVideoStrategy
 import com.otaliastudios.transcoder.strategy.TrackStrategy
 import com.otaliastudios.transcoder.validator.DefaultValidator
-import org.mp4parser.boxes.iso14496.part12.OriginalFormatBox
 import org.mp4parser.muxer.Movie
 import org.mp4parser.muxer.Track
 import org.mp4parser.muxer.builder.DefaultMp4Builder
@@ -79,6 +78,8 @@ class MainActivity : AppCompatActivity() {
     private var mIsCameraSwitched: Boolean = false
 
     private var outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video.mp4")
+    private var rotatedFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Merged_VIDEO.mp4")
+
     private lateinit var mVideoFileList: MutableList<File>
     private lateinit var progressDialogue: ProgressDialog
     private var timeWhenPaused: Long  = 0
@@ -88,14 +89,13 @@ class MainActivity : AppCompatActivity() {
     private var mTranscodeFuture: Future<Void>? = null
     private val mTranscodeVideoStrategy: TrackStrategy? = null
     private val mTranscodeAudioStrategy: TrackStrategy? = null
-
+   private lateinit var mScreenSize: Size
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(mainBinding.root)
 
         mImageCaptureExecutor = Executors.newSingleThreadExecutor()
-
 
         progressDialogue = ProgressDialog(this)
 
@@ -241,7 +241,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(this, mCameraSelector,mImageCapture,mVideoCapture,preview)
-
+                mScreenSize = QualitySelector.getResolution(camera.cameraInfo, Quality.HIGHEST)!!
             } catch (e: Exception) {
                 Log.d("MainActivity", "Use case binding failed")
             }
@@ -378,8 +378,8 @@ class MainActivity : AppCompatActivity() {
                                     }
 
                                     if(!mIsVideoRecording){
-                                        rotateVideo(mVideoFileList[0].absolutePath, mVideoFileList[1].absolutePath, 180)
-                                        //mergeVideosUsingTranscoder(mVideoFileList)
+                                       // rotateVideo(mVideoFileList[0].absolutePath, mVideoFileList[1].absolutePath, 180)
+                                        mergeVideosUsingTranscoder(mVideoFileList)
                                     }
 
 
@@ -468,15 +468,23 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-
-    private fun rotateVideo(inputPath: String, outputPath: String, rotationDegrees: Int) {
+    /**
+     * this method used for merging multiple videos using Transcoder library
+     */
+    private fun mergeVideosUsingTranscoder(videoFiles: List<File>) {
         val builder: TranscoderOptions.Builder =
-            Transcoder.into(outputPath).addDataSource(inputPath)
+            Transcoder.into(rotatedFile.absolutePath)
+        for(videoFile in videoFiles) {
+            builder.addDataSource(videoFile.absolutePath)
+        }
 
+       // use DefaultVideoStrategy.exact(2560, 1440).build()  to restore 75% size of the video
+        //  use DefaultVideoStrategy.exact(mScreenSize.height, mScreenSize.width).build()  to restore 50% size of the video
+        val strategy: DefaultVideoStrategy = DefaultVideoStrategy.exact(2560, 1440).build()
         mTranscodeFuture = builder
             .setAudioTrackStrategy(DefaultAudioStrategy.builder().build()) // DefaultAudioStrategy.builder().build()
-            .setVideoTrackStrategy(DefaultVideoStrategies.for720x1280())  // DefaultVideoStrategies.for720x1280()
-            .setVideoRotation(rotationDegrees)
+            .setVideoTrackStrategy(strategy)  // DefaultVideoStrategies.for720x1280()
+            .setVideoRotation(0)
             .setListener(object : TranscoderListener{
                 override fun onTranscodeProgress(progress: Double) {}
 
@@ -495,12 +503,14 @@ class MainActivity : AppCompatActivity() {
             })
             .setValidator(object : DefaultValidator() {
                 override fun validate(videoStatus: TrackStatus, audioStatus: TrackStatus): Boolean {
-                 //  mIsAudioOnly = !videoStatus.isTranscoding
+                    //  mIsAudioOnly = !videoStatus.isTranscoding
                     return super.validate(videoStatus, audioStatus)
                 }
-            })?.transcode()
+
+            }).transcode()
 
     }
+
 
     private  fun checkPermissions() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -600,7 +610,6 @@ class MainActivity : AppCompatActivity() {
     }
     companion object {
         const val TAG = "MainActivity"
-        private const val ROTATION_DEGREE = 0
         const val REQUEST_CAMERA_PERMISSION: Int = 0
         const val STORAGE_PERMISSION_CODE: Int = 1
         const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
