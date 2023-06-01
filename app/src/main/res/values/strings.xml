@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">CameraX</string>
+    <string name="camera">Camera</string>
+    <string name="video">Video</string>
 </resources>

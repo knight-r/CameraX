@@ -1,9 +1,11 @@
 package com.example.camerax
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.ProgressDialog
 import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -54,11 +56,11 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import kotlin.math.abs
 
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), View.OnClickListener {
     private lateinit var mainBinding: ActivityMainBinding
-    private var mIsVideoRecording: Boolean = false
     private var mImageCapture: ImageCapture? = null
     private lateinit var mImageCaptureExecutor: ExecutorService
     private lateinit var mCameraSelector:CameraSelector
@@ -69,99 +71,218 @@ class MainActivity : AppCompatActivity() {
     private val qualitySelector = QualitySelector.from(quality)
     private var recorderBuilder = Recorder.Builder()
     private var recorder = Recorder.Builder().build()
-    private var mIsVideoPaused: Boolean = false
     private  lateinit var mChronometer: Chronometer
     private var isFlashOn: Boolean = false
     private lateinit var camera: Camera
     private var mIsCameraSwitched: Boolean = false
     private lateinit var mVideoFileList: MutableList<File>
     private lateinit var progressDialogue: ProgressDialog
-    private var timeWhenPaused: Long  = 0
-    private var cameraSwitchCount:Int = 0
     private var mBackgroundThreadHandler: HandlerThread? = null
     private var mBackgroundHandler: Handler? = null
     private var mTranscodeFuture: Future<Void>? = null
+    private var timeWhenPaused: Long  = 0
     private val mTranscodeVideoStrategy: TrackStrategy? = null
     private val mTranscodeAudioStrategy: TrackStrategy? = null
-    private var outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video.mp4")
-    private var rotatedFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Merged_VIDEO.mp4")
+    private var outputFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "Merged_VIDEO.mp4")
     private lateinit var mScreenSize: Size
+    private var mIsVideoCaptureOn: Boolean = false
+    private var mIsFlashOn: Boolean = false
+    private var mIsVideoPaused: Boolean = false
+    private var mIsVideoRecording: Boolean = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mainBinding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(mainBinding.root)
-
+        progressDialogue = ProgressDialog(this)
+        checkPermissions()
+        mChronometer = mainBinding.chronometer
+        timeWhenPaused = 0
         mImageCaptureExecutor = Executors.newSingleThreadExecutor()
 
-        progressDialogue = ProgressDialog(this)
-
         mVideoFileList = mutableListOf()
-        mChronometer = mainBinding.chronometer
-        mChronometer.visibility = View.GONE
-        mainBinding.ivPauseResume.visibility = View.GONE
+        mainBinding.chronometer.visibility = View.GONE
+        mainBinding.tvPause.visibility= View.GONE
+        mainBinding.rlPauseResumeStop.visibility = View.GONE
 
+        initOnClickListeners()
+    }
 
+    /**
+     *  all button clickListeners are implemented here
+     */
+    private fun initOnClickListeners() {
+        mainBinding.tvVideo.setOnClickListener(this)
+        mainBinding.tvCamera.setOnClickListener(this)
+        mainBinding.ibCapturePhoto.setOnClickListener(this)
+        mainBinding.tv1xZoom.setOnClickListener(this)
+        mainBinding.tv2xZoom.setOnClickListener(this)
+        mainBinding.ivFlash.setOnClickListener(this)
+        mainBinding.ibPauseResume.setOnClickListener(this)
+        mainBinding.ibStop.setOnClickListener(this)
+        mainBinding.ivPhotoGallery.setOnClickListener(this)
+        mainBinding.ivSwitchCamera.setOnClickListener(this)
+    }
 
-        checkPermissions()
+    /**
+     *  onClick functionalities are implemented here
+     */
+    override fun onClick(view: View?) {
+        when(view?.id ) {
+            mainBinding.tvVideo.id -> {
+                mIsVideoCaptureOn = true
+                mainBinding.ibCapturePhoto.setImageResource(R.drawable.ic_capture_video)
 
-        mainBinding.ivStartStop.setOnClickListener {
-            if (mIsVideoRecording) {
-                mainBinding.ivTakePicture.visibility = View.VISIBLE
+                mainBinding.apply {
+                    rlTools.visibility = View.GONE
+                    tvVideo.setBackgroundResource(R.drawable.selected_background)
+                    tvVideo.setTextColor(Color.BLACK)
+                    tvCamera.setBackgroundResource(R.drawable.non_selected_background)
+                    tvCamera.setTextColor(Color.WHITE)
+
+                }
+            }
+
+            mainBinding.tvCamera.id -> {
+                mIsVideoCaptureOn = false
+
+                if (mIsVideoRecording) {
+                    stopRecording()
+                }
                 mIsVideoRecording = false
-                cameraSwitchCount = 0
-                stopRecording()
+                mainBinding.apply {
+                    ibPauseResume.setImageResource(R.drawable.ic_pause)
+                    ivPhotoGallery.setImageResource(R.drawable.ic_photo_gallery)
+                    rlPauseResumeStop.visibility = View.GONE
+                    tvPause.visibility = View.GONE
+                    ibCapturePhoto.visibility = View.VISIBLE
+                    ibCapturePhoto.setImageResource(R.drawable.ic_capture_photo)
+                    chronometer.visibility = View.GONE
+                    rlTools.visibility = View.VISIBLE
+                    tvCamera.setBackgroundResource(R.drawable.selected_background)
+                    tvCamera.setTextColor(Color.BLACK)
+                    tvVideo.setBackgroundResource(R.drawable.non_selected_background)
+                    tvVideo.setTextColor(Color.WHITE)
 
-            } else {
-                mainBinding.ivTakePicture.visibility = View.GONE
-                mIsVideoRecording = true
-                startRecordingVideo()
+                }
+
             }
-        }
+            mainBinding.ibCapturePhoto.id -> {
+                if(mIsVideoCaptureOn) {
+                    mainBinding.apply {
+                        chronometer.visibility = View.VISIBLE
+                        ibCapturePhoto.visibility = View.GONE
+                        rlPauseResumeStop.visibility = View.VISIBLE
+                        ivPhotoGallery.setImageResource(R.drawable.ic_camera)
+                    }
+                    mIsVideoRecording = true
+                    startRecordingVideo()
 
-         timeWhenPaused = 0
-        mainBinding.ivPauseResume.setOnClickListener {
-            if (mIsVideoPaused) {
-                mIsVideoPaused = false
-                mRecording!!.resume()
+                } else {
+                    takePhoto()
 
-            } else {
-                mIsVideoPaused = true
-                mRecording!!.pause()
+                }
             }
-        }
-
-        mainBinding.ivSwitchCamera.setOnClickListener {
-            mIsCameraSwitched = true
-            cameraSwitchCount++
-            if (mIsVideoRecording) {
-                stopRecording()
-                switchCamera()
-                startRecordingVideo()
-
-            } else {
-                switchCamera()
+            mainBinding.tv1xZoom.id  -> {
+                mainBinding.apply {
+                    tv1xZoom.setBackgroundResource(R.drawable.selected_background)
+                    tv1xZoom.setTextColor(Color.BLACK)
+                    tv2xZoom.setBackgroundResource(R.drawable.non_selected_background)
+                    tv2xZoom.setTextColor(Color.WHITE)
+                }
             }
-        }
-        mainBinding.ivTakePicture.setOnClickListener {
-            takePhoto() // it will also save the photo
-        }
+            mainBinding.tv2xZoom.id -> {
+                mainBinding.apply {
+                    tv2xZoom.setBackgroundResource(R.drawable.selected_background)
+                    tv2xZoom.setTextColor(Color.BLACK)
+                    tv1xZoom.setBackgroundResource(R.drawable.non_selected_background)
+                    tv1xZoom.setTextColor(Color.WHITE)
+                }
+            }
 
-        mainBinding.ivFlash.setOnClickListener {
-            onFlashButtonClicked()
+            mainBinding.ivFlash.id -> {
+                if(camera.cameraInfo.hasFlashUnit()) {
+                    if (mIsFlashOn) {
+                        mIsFlashOn = false
+                        mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash)
+                        camera.cameraControl.enableTorch(mIsFlashOn)
+                    } else {
+                        mIsFlashOn = true
+                        mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_on_2)
+                        camera.cameraControl.enableTorch(mIsFlashOn)
+                    }
+                } else {
+                    isFlashOn = false
+                    mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash)
+                    Toast.makeText(this, "Flash is not available", Toast.LENGTH_SHORT).show()
+                }
+
+            }
+            mainBinding.ibPauseResume.id -> {
+                if (mIsVideoPaused) {
+                    mIsVideoPaused = false
+                    mainBinding.ibPauseResume.setImageResource(R.drawable.ic_pause)
+                    mainBinding.chronometer.visibility = View.VISIBLE
+                    mainBinding.tvPause.visibility = View.GONE
+                    mRecording!!.resume()
+
+                } else {
+                    mIsVideoPaused = true
+                    mainBinding.ibPauseResume.setImageResource(R.drawable.ic_play)
+                    mainBinding.chronometer.visibility = View.GONE
+                    mainBinding.tvPause.visibility = View.VISIBLE
+                    mRecording!!.pause()
+                }
+            }
+
+            mainBinding.ibStop.id -> {
+                mainBinding.apply {
+                    rlPauseResumeStop.visibility = View.GONE
+                    ibCapturePhoto.visibility = View.VISIBLE
+                    chronometer.visibility = View.GONE
+                    ivPhotoGallery.setImageResource(R.drawable.ic_photo_gallery)
+                    tvPause.visibility = View.GONE
+                    ivPhotoGallery.setImageResource(R.drawable.ic_photo_gallery)
+                }
+               mIsVideoRecording = false
+               stopRecording()
+
+            }
+            mainBinding.ivPhotoGallery.id -> {
+                if( mIsVideoRecording) {
+                    takePhoto()
+                } else {
+                    // show photo gallery
+                }
+            }
+
+            mainBinding.ivSwitchCamera.id -> {
+                mIsCameraSwitched = true
+                if (mIsVideoRecording) {
+                    stopRecording()
+                    switchCamera()
+                    startRecordingVideo()
+
+                } else {
+                    switchCamera()
+                }
+
+
+            }
+
         }
 
     }
 
     /**
-     * this method is responsible for the switch of the camera
+     * method to switch between front and back camera
      */
     private fun switchCamera() {
         if ( mCameraSelector == CameraSelector.DEFAULT_BACK_CAMERA) {
             camera.cameraControl.enableTorch(false)
+            mIsFlashOn = false
             mCameraSelector =  CameraSelector.DEFAULT_FRONT_CAMERA
-
-            mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_off_icon)
+            mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash)
         } else {
             mCameraSelector =  CameraSelector.DEFAULT_BACK_CAMERA
         }
@@ -169,28 +290,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * this method will be invoked on click of flash button and turnOn/turnOff flash light accordingly
-     */
-    private fun onFlashButtonClicked() {
-        if(camera.cameraInfo.hasFlashUnit()) {
-            if (isFlashOn) {
-                isFlashOn = false
-                mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_off_icon)
-                camera.cameraControl.enableTorch(isFlashOn)
-            } else {
-                isFlashOn = true
-                mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_icon)
-                camera.cameraControl.enableTorch(isFlashOn)
-            }
-        } else {
-            isFlashOn = false
-            mainBinding.ivFlash.setBackgroundResource(R.drawable.ic_flash_off_icon)
-            Toast.makeText(this, "Flash is not available", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /**
-     * this method will start the camera preview
+     * method to start camera preview
      */
     private fun startCamera() {
         val preview = Preview.Builder()
@@ -199,9 +299,9 @@ class MainActivity : AppCompatActivity() {
                 it.setSurfaceProvider(mainBinding.cameraPreview.surfaceProvider)
             }
         val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        if(mIsCameraSwitched) {
-            recorder = Recorder.Builder().build()
-        }
+
+        recorder = Recorder.Builder().build()
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
@@ -228,6 +328,7 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
+
         mVideoCapture = VideoCapture.withOutput(recorder)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
@@ -236,9 +337,11 @@ class MainActivity : AppCompatActivity() {
                 .build()
 
             try {
+
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(this, mCameraSelector,mImageCapture,mVideoCapture,preview)
-                mScreenSize = QualitySelector.getResolution(camera.cameraInfo, Quality.HIGHEST)!!
+//                mScreenSize = QualitySelector.getResolution(camera.cameraInfo, Quality.HIGHEST)!!
+
             } catch (e: Exception) {
                 Log.d("MainActivity", "Use case binding failed")
             }
@@ -269,22 +372,20 @@ class MainActivity : AppCompatActivity() {
                 mImageCaptureExecutor,
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults){
-                        startCamera()
+                        val uri = outputFileResults.savedUri
                     }
 
                     override fun onError(exception: ImageCaptureException) {
-                        Toast.makeText(
-                            mainBinding.root.context,
-                            "Error occurred in taking photo",
-                            Toast.LENGTH_LONG
-                        ).show()
+
                         Log.d("MainActivity", "Error taking photo:$exception")
                     }
 
                 })
 
             Toast.makeText( this@MainActivity , "The image has been saved to Gallery", Toast.LENGTH_SHORT).show()
-
+            if(!mIsVideoRecording) {
+                startCamera()
+            }
         }
     }
 
@@ -292,7 +393,7 @@ class MainActivity : AppCompatActivity() {
      * this method will start the recording of video
      */
     private fun startRecordingVideo() {
-        mainBinding.ivStartStop.setBackgroundResource(R.drawable.ic_stop_video_icon)
+
         mVideoCapture!!.let {
             try {
                 if (ActivityCompat.checkSelfPermission(
@@ -341,15 +442,18 @@ class MainActivity : AppCompatActivity() {
                     .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
                         when(recordEvent) {
                             is VideoRecordEvent.Start -> {
-                                mainBinding.ivPauseResume.visibility = View.VISIBLE
-                                mChronometer.visibility = View.VISIBLE
                                 mChronometer.base = SystemClock.elapsedRealtime()
                                 mChronometer.start()
                             }
                             is VideoRecordEvent.Pause -> {
-                                mIsVideoPaused = true
-                                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_resume_icon)
                                 timeWhenPaused = mChronometer.base - SystemClock.elapsedRealtime()
+                                val timeStamp = abs(timeWhenPaused)
+                                if (timeWhenPaused >= 10) {
+                                    mainBinding.tvPause.text = "Paused: 00:${timeWhenPaused.toString()}"
+                                } else {
+                                    mainBinding.tvPause.text = "Paused: 00:0${(timeStamp/1000).toInt().toString()}"
+
+                                }
                                 mChronometer.stop()
                             }
                             is VideoRecordEvent.Finalize -> {
@@ -368,12 +472,13 @@ class MainActivity : AppCompatActivity() {
 
                                                 if(videoFile.exists()) {
                                                     mVideoFileList.add(videoFile)
-                                                    Toast.makeText(this,  "File Saved", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(this,  "File saved to ${videoFile.absolutePath}", Toast.LENGTH_SHORT).show()
                                                 }
                                             }
                                         }
                                     }
                                     if(!mIsVideoRecording){
+                                        timeWhenPaused = 0
                                         mergeVideosUsingTranscoder(mVideoFileList)
                                     }
                                 } else {
@@ -384,8 +489,7 @@ class MainActivity : AppCompatActivity() {
 
                             }
                             is VideoRecordEvent.Resume -> {
-                                mIsVideoPaused = false
-                                mainBinding.ivPauseResume.setBackgroundResource(R.drawable.ic_pause_icon)
+
                                 mChronometer.base = SystemClock.elapsedRealtime() + timeWhenPaused
                                 mChronometer.start()
                             }
@@ -400,65 +504,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopRecording() {
-        mainBinding.ivStartStop.setBackgroundResource(R.drawable.ic_start_video_icon)
         mRecording!!.stop()
-        mChronometer.stop()
-        mChronometer.visibility = View.GONE
         if(!mIsVideoRecording) {
-            mainBinding.ivPauseResume.visibility = View.GONE
             startCamera()
         }
-    }
-
-
-    private fun mergeVideos(videoFiles: List<File>) {
-        try {
-            progressDialogue.setMessage("Merging Videos..")
-            progressDialogue.show()
-            val movieList = mutableListOf<Movie>()
-            for (videoFile  in videoFiles) {
-
-                val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "merged_video${System.currentTimeMillis()}.mp4")
-                progressDialogue.setMessage("generating new file path...")
-                progressDialogue.show()
-                val movie = MovieCreator.build(file.absolutePath)
-                movieList.add(movie)
-            }
-            val videoTracks = mutableListOf<Track>()
-            val audioTracks = mutableListOf<Track>()
-
-            for (movie in movieList) {
-                for (track in movie.tracks) {
-                    if (track.handler == "vide") {
-                        videoTracks.add(track)
-                    }
-                    if (track.handler == "soun") {
-                        audioTracks.add(track)
-                    }
-                }
-            }
-
-            val mergedMovie = Movie()
-            if (videoTracks.size > 0) {
-                mergedMovie.addTrack(AppendTrack(*videoTracks.toTypedArray()))
-            }
-
-            if (audioTracks.size > 0) {
-                mergedMovie.addTrack(AppendTrack(*audioTracks.toTypedArray()))
-            }
-
-            val container = DefaultMp4Builder().build(mergedMovie)
-            val fileChannel = FileOutputStream(outputFile).channel
-            container.writeContainer(fileChannel)
-            fileChannel.close()
-            progressDialogue.cancel()
-
-            Toast.makeText(this, "Videos merged successfully", Toast.LENGTH_SHORT).show()
-
-        } catch (e : Exception) {
-            Log.e(TAG, e.message.toString())
-        }
-
     }
 
     /**
@@ -469,12 +518,12 @@ class MainActivity : AppCompatActivity() {
         progressDialogue.setMessage("Merging Videos..")
         progressDialogue.show()
         val builder: TranscoderOptions.Builder =
-            Transcoder.into(rotatedFile.absolutePath)
+            Transcoder.into(outputFile.absolutePath)
         for(videoFile in videoFiles) {
             builder.addDataSource(videoFile.absolutePath)
         }
 
-       // use DefaultVideoStrategy.exact(2560, 1440).build()  to restore 75% size of the video
+        // use DefaultVideoStrategy.exact(2560, 1440).build()  to restore 75% size of the video
         //  use DefaultVideoStrategy.exact(mScreenSize.height, mScreenSize.width).build()  to restore 50% size of the video
 
         val strategy: DefaultVideoStrategy = DefaultVideoStrategy.exact(2560, 1440).build()
@@ -488,11 +537,13 @@ class MainActivity : AppCompatActivity() {
                 override fun onTranscodeProgress(progress: Double) {}
 
                 override fun onTranscodeCompleted(successCode: Int) {
+                    progressDialogue.cancel()
                     Toast.makeText(this@MainActivity, "Video Merged Successfully", Toast.LENGTH_SHORT).show()
+
                 }
 
                 override fun onTranscodeCanceled() {
-                    Toast.makeText(this@MainActivity, "Video rotation cancelled", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Video merge cancelled", Toast.LENGTH_SHORT).show()
                 }
 
                 override fun onTranscodeFailed(exception: Throwable) {
@@ -507,8 +558,9 @@ class MainActivity : AppCompatActivity() {
                 }
 
             }).transcode()
-        progressDialogue.cancel()
+
     }
+
 
     /**
      * this method will check camera and other required permission to run the app
@@ -519,8 +571,8 @@ class MainActivity : AppCompatActivity() {
             && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             && ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
         ) {
-         mCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-         startCamera()
+            mCameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+            startCamera()
 
         } else {
             if (shouldShowRequestPermissionRationale(Manifest.permission.WRITE_EXTERNAL_STORAGE )) {
@@ -596,7 +648,10 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         Log.e(TAG, "onStop()")
-
+        if(mIsVideoRecording) {
+            mIsVideoRecording = false
+            stopRecording()
+        }
     }
 
     override fun onRestart() {

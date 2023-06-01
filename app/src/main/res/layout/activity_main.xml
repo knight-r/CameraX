@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -8,82 +7,270 @@
 
     <androidx.camera.view.PreviewView
         android:id="@+id/camera_preview"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"/>
-
-    <Chronometer
-        android:id="@+id/chronometer"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@id/iv_take_picture"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_centerInParent="true"
-        android:gravity="center"
-        android:padding="5dp"
-        android:textAlignment="center"
-        android:textColor="@color/white"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-    <ImageView
-        android:id="@+id/iv_start_stop"
-        android:background="@drawable/ic_start_video_icon"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/iv_take_picture"
-        android:layout_marginBottom="10dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
-    <ImageView
-        android:id="@+id/iv_take_picture"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="@+id/iv_start_stop"
-        app:layout_constraintBottom_toBottomOf="parent"
-        android:layout_marginBottom="10dp"
-        android:background="@drawable/ic_camera_icon"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
-    <ImageView
-        android:id="@+id/iv_pause_resume"
-        app:layout_constraintStart_toEndOf="@+id/iv_take_picture"
-        app:layout_constraintTop_toTopOf="@+id/iv_start_stop"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:background="@drawable/ic_pause_icon"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
-    <ImageView
-        android:id="@+id/iv_switch_camera"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        android:layout_marginBottom="80dp"
-        android:layout_marginEnd="20dp"
-        android:background="@drawable/ic_switch_camera_icon"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-    <ImageView
-        android:id="@+id/iv_flash"
-        app:layout_constraintBottom_toTopOf="@+id/iv_switch_camera"
-        app:layout_constraintEnd_toEndOf="parent"
-        android:background="@drawable/ic_flash_off_icon"
-        android:layout_marginEnd="20dp"
-        android:layout_marginBottom="20dp"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        />
-
-    <com.google.android.exoplayer2.ui.PlayerView
-        android:id="@+id/player_view"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         />
-</androidx.constraintlayout.widget.ConstraintLayout>
+    <RelativeLayout
+        android:id="@+id/rl_options"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="@dimen/_5sdp"
+        android:background="@drawable/tools_background"
+        >
+        <TextView
+            android:id="@+id/tv_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="@dimen/_5sdp"
+            android:paddingBottom="@dimen/_5sdp"
+            android:paddingLeft="@dimen/_10sdp"
+            android:paddingRight="@dimen/_10sdp"
+            android:textColor="@color/black"
+            android:background="@drawable/selected_background"
+            android:text="@string/camera"
+            android:textSize="@dimen/_12sdp"
+            />
+        <TextView
+            android:id="@+id/tv_video"
+            android:layout_toRightOf="@+id/tv_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="@dimen/_5sdp"
+            android:paddingBottom="@dimen/_5sdp"
+            android:paddingRight="@dimen/_10sdp"
+            android:paddingLeft="@dimen/_10sdp"
+            android:textColor="@color/white"
+            android:text="@string/video"
+            android:textSize="@dimen/_12sdp"
+            />
+
+    </RelativeLayout>
+
+    <RelativeLayout
+        android:id="@+id/rl_camera_components"
+        android:layout_above="@+id/rl_options"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="@dimen/_10sdp"
+        android:gravity="center"
+        >
+
+        <ImageView
+            android:id="@+id/iv_photo_gallery"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@drawable/ic_photo_gallery"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="@dimen/_60sdp"
+            />
+        <ImageButton
+            android:id="@+id/ib_capture_photo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:background="@drawable/round_corner"
+            android:src="@drawable/ic_capture_photo" >
+
+        </ImageButton>
+        <RelativeLayout
+            android:id="@+id/rl_pause_resume_stop"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:layout_centerVertical="true"
+            android:background="@drawable/shape_item"
+            android:paddingLeft="@dimen/_5sdp"
+            android:paddingTop="@dimen/_5sdp"
+            android:paddingRight="@dimen/_5sdp"
+            android:paddingBottom="@dimen/_5sdp"
+            >
+
+            <ImageButton
+                android:id="@+id/ib_pause_resume"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginRight="@dimen/_2sdp"
+                android:layout_centerVertical="true"
+                android:background="@drawable/round_corner"
+                android:src="@drawable/ic_pause" />
+
+            <ImageButton
+                android:id="@+id/ib_stop"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerVertical="true"
+                android:layout_toRightOf="@+id/ib_pause_resume"
+                android:layout_marginLeft="@dimen/_2sdp"
+                android:background="@drawable/round_corner"
+                android:src="@drawable/ic_stop" />
+
+        </RelativeLayout>
+
+        <ImageButton
+            android:id="@+id/iv_switch_camera"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentRight="true"
+            android:layout_centerVertical="true"
+            android:src="@drawable/ic_switch_camera"
+            android:background="@drawable/round_corner"
+            android:layout_marginEnd="@dimen/_60sdp"
+            />
+
+    </RelativeLayout>
+
+
+
+
+
+    <RelativeLayout
+        android:layout_above="@+id/rl_camera_components"
+        android:layout_centerHorizontal="true"
+        android:layout_marginBottom="@dimen/_20sdp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+
+        >
+        <ImageButton
+            android:id="@+id/ib_tool"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@drawable/ic_rectangle"
+            android:padding="@dimen/_5sdp"
+            android:background="@drawable/round_corner"
+            android:backgroundTint="@color/tools_background_color"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="@dimen/_70sdp"
+            />
+        <RelativeLayout
+            android:id="@+id/rl_zoom"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/tools_background"
+            android:layout_centerHorizontal="true"
+            android:layout_centerVertical="true"
+
+            >
+            <TextView
+                android:id="@+id/tv_1x_zoom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingLeft="@dimen/_8sdp"
+                android:paddingRight="@dimen/_8sdp"
+                android:paddingTop="@dimen/_7sdp"
+                android:paddingBottom="@dimen/_7sdp"
+                android:text="1x"
+                android:textSize="@dimen/_8sdp"
+                android:textColor="@color/black"
+                android:background="@drawable/selected_background"
+                />
+            <TextView
+                android:id="@+id/tv_2x_zoom"
+                android:layout_toRightOf="@+id/tv_1x_zoom"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingLeft="@dimen/_8sdp"
+                android:paddingRight="@dimen/_8sdp"
+                android:paddingTop="@dimen/_7sdp"
+                android:paddingBottom="@dimen/_7sdp"
+                android:text="2x"
+                android:textSize="@dimen/_8sdp"
+                android:textColor="@color/white"
+                android:background="@drawable/tools_background"
+                />
+        </RelativeLayout>
+        <ImageButton
+            android:id="@+id/iv_flash"
+            android:layout_alignParentRight="true"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/ic_flash"
+            android:layout_centerVertical="true"
+            android:layout_marginRight="@dimen/_70sdp"
+            />
+
+    </RelativeLayout>
+
+
+    <RelativeLayout
+        android:id="@+id/rl_tools"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="@dimen/_40sdp"
+        android:layout_marginEnd="@dimen/_30sdp"
+        android:padding="@dimen/_5sdp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/tools_background"
+        >
+        <ImageButton
+            android:id="@+id/ib_vector"
+            android:background="@drawable/ic_flash_on"
+            android:layout_marginEnd="@dimen/_10sdp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            />
+
+        <ImageButton
+            android:id="@+id/ib_cross"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/_10sdp"
+            android:layout_toRightOf="@+id/ib_vector"
+            android:background="@drawable/ic_clock_out" />
+        <ImageButton
+            android:id="@+id/ib_rectangular_box"
+            android:layout_toRightOf="@+id/ib_cross"
+            android:background="@drawable/ic_rectangle"
+            android:layout_marginEnd="@dimen/_10sdp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            />
+        <ImageButton
+            android:id="@+id/ib_drop_down_icon"
+            android:layout_toRightOf="@+id/ib_rectangular_box"
+            android:background="@drawable/ic_drop_down"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            />
+    </RelativeLayout>
+
+    <Chronometer
+        android:id="@+id/chronometer"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="@dimen/_40sdp"
+        android:background="@drawable/round_corner"
+        android:backgroundTint="@color/red"
+        android:textColor="@color/white"
+        android:drawableLeft="@drawable/ic_white_circle"
+        android:drawablePadding="@dimen/_5sdp"
+        android:textSize="@dimen/_10sdp"
+        android:padding="@dimen/_5sdp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        />
+    <TextView
+        android:id="@+id/tv_pause"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/_40sdp"
+        android:layout_centerHorizontal="true"
+        android:gravity="center"
+        android:background="@drawable/round_corner"
+        android:backgroundTint="@color/red"
+        android:padding="@dimen/_5sdp"
+        android:drawableLeft="@drawable/ic_pause"
+        android:drawablePadding="@dimen/_3sdp"
+        android:text="Paused: 00:00"
+        android:textColor="@color/white"
+        android:textStyle="bold"
+        android:textSize="@dimen/_10sdp"
+        />
+
+
+
+
+</RelativeLayout>
